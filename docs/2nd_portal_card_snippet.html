@@ -1,0 +1,41 @@
+<!--
+  ============================================================
+  geo-insar 卡片 — 二级门户(192.168.112.18/2nd Page/index.html)
+  ============================================================
+  二级门户在远程主机,需要运维或前端同学在远程的 index.html 里粘贴下面这段卡片代码,
+  与现有 geo-downloader / geo-exploration 等卡片并列。
+
+  集成步骤:
+  1. SSH 到 192.168.112.18,定位 2nd Page/index.html
+  2. 找到现有子系统卡片区(应该是 Tailwind 风格的 grid)
+  3. 复制下面整段 <a class="..."> ... </a> 块插入卡片区
+  4. 端口 8084 已在 geo-insar 服务里固定,卡片链接相对运维主机的网络可达性
+  5. 如果二级门户主页不在 192.168.112.18(而是局域网其他 IP),把 href 里的 IP 替换掉
+
+  设计选择:
+  - 紫色调(purple)区分,与 geo-downloader(蓝)/geo-exploration(绿)等做视觉区分
+  - 图标 lucide:radar 体现 SAR 雷达属性
+  - 描述行简洁,匹配现有卡片字数
+-->
+
+<a href="http://192.168.112.18:8084/" class="block group" target="_blank" rel="noopener">
+  <div class="bg-white rounded-xl shadow-sm border border-zinc-200 p-6 hover:shadow-md hover:border-purple-300 transition-all">
+    <div class="flex items-start gap-4">
+      <div class="bg-purple-100 text-purple-700 p-3 rounded-lg group-hover:bg-purple-600 group-hover:text-white transition-colors">
+        <iconify-icon icon="lucide:radar" class="text-2xl"></iconify-icon>
+      </div>
+      <div class="flex-1 min-w-0">
+        <h3 class="text-lg font-semibold text-zinc-900 group-hover:text-purple-700 transition-colors">
+          geo-insar
+        </h3>
+        <p class="text-sm text-zinc-500 mt-1 leading-relaxed">
+          InSAR 数据下载与处理平台
+        </p>
+        <p class="text-xs text-zinc-400 mt-2">
+          ASF HyP3 云端 · 本地 SNAP 干涉 · LiCSAR 成品
+        </p>
+      </div>
+      <iconify-icon icon="lucide:arrow-up-right" class="text-zinc-400 group-hover:text-purple-600 transition-colors"></iconify-icon>
+    </div>
+  </div>
+</a>

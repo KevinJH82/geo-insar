@@ -1,0 +1,25 @@
+﻿<?xml version="1.0" encoding="UTF-8"?>
+<kml xmlns="http://www.opengis.net/kml/2.2" 
+	xmlns:atom="http://www.w3.org/2005/Atom" 
+	xmlns:gx="http://www.google.com/kml/ext/2.2" 
+	>
+<Document>
+	<name>山东招远庙山金矿4.974km2</name>
+	<Placemark>
+		<name>山东招远庙山金矿4.974km2</name>
+		<Style>
+			<LineStyle><color>ff0000ff</color><width>3</width></LineStyle>
+			<PolyStyle><color>26ffffff</color></PolyStyle>
+		</Style>
+		<OvCoordType>CGCS2000</OvCoordType>
+			<Polygon>
+				<tessellate>1</tessellate>
+				<outerBoundaryIs>
+					<LinearRing>
+						<coordinates>120.42938167,37.17746472,0 120.43299278,37.17746472,0 120.43299278,37.17940917,0 120.45354833,37.17940917,0 120.45354833,37.18635361,0 120.45188167,37.18635361,0 120.45188167,37.18968694,0 120.45604833,37.18968694,0 120.45604833,37.19607583,0 120.44965944,37.19607583,0 120.44965944,37.20024250,0 120.42938167,37.20024250,0 120.42938167,37.17746472,0 </coordinates>
+					</LinearRing>
+				</outerBoundaryIs>
+			</Polygon>
+	</Placemark>
+</Document>
+</kml>

@@ -1,0 +1,266 @@
+{% extends "_base.html" %}
+{% set active = 'index' %}
+{% block title %}任务控制台{% endblock %}
+{% block page_title %}任务控制台{% endblock %}
+{% block page_sub %}上传 AOI、配置 InSAR 参数,提交 ASF HyP3 云端处理任务。{% endblock %}
+
+{% block content %}
+<div class="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
+  <!-- 左列:AOI + 参数 -->
+  <div class="space-y-6">
+    <section class="sh-card p-6">
+      <h3 class="font-semibold text-zinc-900 flex items-center gap-2 mb-4">
+        <iconify-icon icon="lucide:map" class="text-purple-600"></iconify-icon>
+        AOI 区域文件
+      </h3>
+      <input type="file" id="kml-file" accept=".kml,.ovkml,.kmz,.ovkmz" class="sh-input mb-3">
+      <div id="aoi-info" class="text-xs text-zinc-500"></div>
+    </section>
+
+    <section class="sh-card p-6 space-y-3">
+      <h3 class="font-semibold text-zinc-900 flex items-center gap-2 mb-2">
+        <iconify-icon icon="lucide:calendar" class="text-purple-600"></iconify-icon>
+        时间窗
+      </h3>
+      <div class="grid grid-cols-2 gap-3">
+        <div><label class="text-xs text-zinc-500">起始</label><input type="date" id="start" class="sh-input"></div>
+        <div><label class="text-xs text-zinc-500">结束</label><input type="date" id="end" class="sh-input"></div>
+      </div>
+    </section>
+
+    <section class="sh-card p-6 space-y-3">
+      <h3 class="font-semibold text-zinc-900 flex items-center gap-2 mb-2">
+        <iconify-icon icon="lucide:link" class="text-purple-600"></iconify-icon>
+        InSAR 参数
+      </h3>
+      <div>
+        <label class="text-xs text-zinc-500">配对策略</label>
+        <select id="pair" class="sh-input">
+          <option value="closest_in_time">closest_in_time(相邻 12 天默认)</option>
+          <option value="fixed_master">fixed_master(固定主影像)</option>
+          <option value="cascade">cascade(级联,产生更多对)</option>
+        </select>
+      </div>
+      <div class="grid grid-cols-2 gap-3">
+        <div><label class="text-xs text-zinc-500">最大时间基线(天)</label><input type="number" id="max-temporal" value="24" min="6" max="180" class="sh-input"></div>
+        <div><label class="text-xs text-zinc-500">最大垂直基线(m)</label><input type="number" id="max-perp" value="200" min="50" max="500" class="sh-input"></div>
+      </div>
+      <div class="grid grid-cols-2 gap-3">
+        <div>
+          <label class="text-xs text-zinc-500">极化</label>
+          <select id="polarization" class="sh-input">
+            <option value="VV">VV(默认)</option>
+            <option value="HH">HH</option>
+          </select>
+        </div>
+        <div>
+          <label class="text-xs text-zinc-500">HyP3 后端</label>
+          <select id="backend" class="sh-input">
+            <option value="INSAR_ISCE_BURST">ISCE_BURST(单 burst,推荐 &lt;25km)</option>
+            <option value="INSAR_GAMMA">GAMMA(整景,推荐 &gt;50km)</option>
+          </select>
+        </div>
+      </div>
+      <div class="flex gap-4 text-xs">
+        <label class="flex items-center gap-2"><input type="checkbox" id="inc-dem"> 附带 DEM</label>
+        <label class="flex items-center gap-2"><input type="checkbox" id="inc-water"> 水体掩膜</label>
+        <label class="flex items-center gap-2"><input type="checkbox" id="inc-inc"> 入射角图</label>
+      </div>
+    </section>
+  </div>
+
+  <!-- 右列:预览 + 提交 -->
+  <div class="space-y-6">
+    <section class="sh-card p-6">
+      <h3 class="font-semibold text-zinc-900 flex items-center gap-2 mb-4">
+        <iconify-icon icon="lucide:eye" class="text-purple-600"></iconify-icon>
+        配对预览(提交前核对)
+      </h3>
+      <button id="btn-preview" class="sh-btn-outline w-full justify-center mb-3">
+        <iconify-icon icon="lucide:search"></iconify-icon>查询能配出多少对
+      </button>
+      <div id="preview-result" class="text-sm"></div>
+    </section>
+
+    <section class="sh-card p-6">
+      <h3 class="font-semibold text-zinc-900 flex items-center gap-2 mb-4">
+        <iconify-icon icon="lucide:send" class="text-purple-600"></iconify-icon>
+        提交任务
+      </h3>
+      <input type="text" id="label" placeholder="任务标签(可选)" class="sh-input mb-3">
+      <div class="flex gap-2">
+        <button id="btn-dry" class="sh-btn-outline flex-1 justify-center">
+          <iconify-icon icon="lucide:test-tube"></iconify-icon>Dry-run
+        </button>
+        <button id="btn-submit" class="sh-btn-primary flex-1 justify-center">
+          <iconify-icon icon="lucide:rocket"></iconify-icon>提交 HyP3
+        </button>
+      </div>
+    </section>
+
+    <section class="sh-card p-6">
+      <h3 class="font-semibold text-zinc-900 flex items-center gap-2 mb-4">
+        <iconify-icon icon="lucide:list" class="text-purple-600"></iconify-icon>
+        任务列表
+      </h3>
+      <div id="task-list" class="space-y-2 text-sm">加载中…</div>
+    </section>
+
+    <!-- Phase 2/3 数据源信息 -->
+    <section class="sh-card p-6">
+      <h3 class="font-semibold text-zinc-900 flex items-center gap-2 mb-3">
+        <iconify-icon icon="lucide:database-zap" class="text-purple-600"></iconify-icon>
+        其他数据源(CLI 可用)
+      </h3>
+      <div class="space-y-3 text-xs">
+        <div class="border border-zinc-200 rounded-md p-3">
+          <div class="flex items-center justify-between mb-1">
+            <span class="font-medium">Phase 2 · 本地 SNAP 干涉</span>
+            <span class="status-pill pill-pending">CLI</span>
+          </div>
+          <div class="text-zinc-500">Sentinel-1 / ALOS-2 SLC 本地下载 + SNAP gpt 干涉处理。</div>
+          <code class="block mt-1 text-[10px] bg-zinc-50 p-1.5 rounded">python3 main.py --mode local --sensor sentinel1 ...</code>
+          <div class="text-[10px] text-zinc-400 mt-1">需先装 SNAP/snaphu/pyroSAR/Java,详见 docs/PHASE_2_HANDOFF.md</div>
+        </div>
+        <div class="border border-zinc-200 rounded-md p-3">
+          <div class="flex items-center justify-between mb-1">
+            <span class="font-medium">Phase 3 · COMET LiCSAR 成品</span>
+            <span class="status-pill pill-pending">CLI</span>
+          </div>
+          <div class="text-zinc-500">无需自处理,直接抓 NERC 已发布的全球 InSAR 衍生品。</div>
+          <code class="block mt-1 text-[10px] bg-zinc-50 p-1.5 rounded">python3 main.py --mode licsar --licsar-frame 022D_05411_131313 ...</code>
+          <div class="text-[10px] text-zinc-400 mt-1">中国境内覆盖有限,先到 <a class="text-purple-600 underline" target="_blank" href="https://comet.nerc.ac.uk/comet-lics-portal/">LiCS Portal</a> 查 frame ID</div>
+        </div>
+      </div>
+    </section>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+let currentKmlPath = null;
+
+document.getElementById('kml-file').addEventListener('change', async (e) => {
+  const file = e.target.files[0];
+  if (!file) return;
+  const fd = new FormData();
+  fd.append('file', file);
+  const r = await fetch('/api/aoi/inspect', {method:'POST', body: fd});
+  const j = await r.json();
+  if (j.error) {
+    document.getElementById('aoi-info').innerHTML = `<span class="text-red-600">❌ ${j.error}</span>`;
+    return;
+  }
+  currentKmlPath = j.kml_path;
+  document.getElementById('aoi-info').innerHTML = `
+    <div class="space-y-1">
+      <div>✅ <b>${j.aoi_name}</b></div>
+      <div>面积: <b>${j.area_km2} km²</b> · bbox [${j.bbox.map(v=>v.toFixed(3)).join(', ')}]</div>
+      <div class="text-purple-700 bg-purple-50 px-2 py-1 rounded text-[11px]">建议后端: ${j.backend_hint} — ${j.backend_reason}</div>
+    </div>`;
+  document.getElementById('backend').value = j.backend_hint;
+});
+
+function gatherParams(extra) {
+  return Object.assign({
+    kml_path: currentKmlPath,
+    start: document.getElementById('start').value,
+    end: document.getElementById('end').value,
+    pair: document.getElementById('pair').value,
+    max_temporal_baseline: parseInt(document.getElementById('max-temporal').value),
+    max_perp_baseline: parseFloat(document.getElementById('max-perp').value),
+    polarization: document.getElementById('polarization').value,
+    backend: document.getElementById('backend').value,
+    include_dem: document.getElementById('inc-dem').checked,
+    include_water_mask: document.getElementById('inc-water').checked,
+    include_inc_map: document.getElementById('inc-inc').checked,
+    label: document.getElementById('label').value,
+  }, extra || {});
+}
+
+document.getElementById('btn-preview').onclick = async () => {
+  if (!currentKmlPath) { alert('请先上传 KML'); return; }
+  document.getElementById('preview-result').innerHTML = '搜索中…';
+  const r = await fetch('/api/pairs/preview', {
+    method: 'POST', headers: {'Content-Type':'application/json'},
+    body: JSON.stringify(gatherParams()),
+  });
+  const j = await r.json();
+  if (j.error) {
+    document.getElementById('preview-result').innerHTML = `<span class="text-red-600">❌ ${j.error}</span>`;
+    return;
+  }
+  let rows = j.pairs.slice(0, 20).map(p =>
+    `<tr><td>${p.ref_date}</td><td>${p.sec_date}</td><td class="text-right">${p.temporal_baseline_days} d</td><td>${p.orbit||''}</td></tr>`
+  ).join('');
+  document.getElementById('preview-result').innerHTML = `
+    <div class="mb-2">找到 <b>${j.scene_count}</b> 景 SLC,可配 <b>${j.pair_count}</b> 对${j.pairs.length>20?` (显示前 20)`:''}</div>
+    <table class="w-full text-xs"><thead><tr class="text-zinc-500"><th>主</th><th>从</th><th class="text-right">基线</th><th>轨道</th></tr></thead><tbody>${rows}</tbody></table>`;
+};
+
+async function submitTask(dryRun) {
+  if (!currentKmlPath) { alert('请先上传 KML'); return; }
+  const r = await fetch('/api/run', {
+    method: 'POST', headers: {'Content-Type':'application/json'},
+    body: JSON.stringify(gatherParams({dry_run: dryRun})),
+  });
+  const j = await r.json();
+  if (j.task_id) {
+    alert(`任务 #${j.task_id} 已提交,${dryRun?'(dry-run)':'后台正在异步提交 HyP3'}`);
+    refreshTasks();
+  } else {
+    alert('提交失败:' + (j.error || JSON.stringify(j)));
+  }
+}
+document.getElementById('btn-dry').onclick = () => submitTask(true);
+document.getElementById('btn-submit').onclick = () => submitTask(false);
+
+async function refreshTasks() {
+  const r = await fetch('/api/tasks');
+  const j = await r.json();
+  const html = (j.tasks || []).slice(0, 20).map(t => {
+    const p = t.progress || {};
+    const pillClass = t.status==='done' ? 'pill-done' : (t.status==='error' ? 'pill-error' : (t.status==='running' ? 'pill-running' : 'pill-pending'));
+    return `<div class="group relative border border-zinc-200 rounded-md p-3 hover:border-zinc-400 hover:bg-zinc-50 transition-colors">
+      <a href="/task.html?id=${t.id}" class="block">
+        <div class="flex justify-between items-center mb-1 pr-7">
+          <span class="font-medium">#${t.id} ${t.label||t.aoi_name||'(无名)'}</span>
+          <span class="status-pill ${pillClass}">${t.status}</span>
+        </div>
+        <div class="text-xs text-zinc-500">${t.start_date} ~ ${t.end_date} · ${t.backend} · ${t.pair_strategy}</div>
+        <div class="text-xs mt-1">jobs: ${p.done||0}/${p.total||0} 完成${p.failed?` · ${p.failed} 失败`:''}${p.running?` · ${p.running} 进行中`:''}</div>
+        ${t.error_msg ? `<div class="text-xs text-red-600 mt-1">${t.error_msg}</div>` : ''}
+      </a>
+      <button data-tid="${t.id}" title="删除任务"
+        class="del-btn opacity-0 group-hover:opacity-100 absolute top-2 right-2 text-zinc-400 hover:text-red-600 transition-opacity">
+        <iconify-icon icon="lucide:x" class="text-base"></iconify-icon>
+      </button>
+    </div>`;
+  }).join('');
+  document.getElementById('task-list').innerHTML = html || '<div class="text-zinc-400">暂无任务</div>';
+
+  // 给每个 × 按钮挂事件(用事件委托避免每次刷新都加监听)
+  document.querySelectorAll('.del-btn').forEach(btn => {
+    btn.addEventListener('click', async (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      const tid = btn.dataset.tid;
+      if (!confirm(`确认删除 task #${tid}?`)) return;
+      try {
+        let r = await fetch(`/api/tasks/${tid}`, {method:'DELETE'});
+        if (r.status === 409) {
+          const j = await r.json();
+          if (!confirm(`⚠ task 在 HyP3 有 ${j.hyp3_jobs_in_flight} 个真 jobs(无法 cancel)。\n强制删除?`)) return;
+          r = await fetch(`/api/tasks/${tid}?force=true`, {method:'DELETE'});
+        }
+        if (!r.ok) throw new Error(await r.text());
+        refreshTasks();
+      } catch (e) { alert('删除失败: ' + e.message); }
+    });
+  });
+}
+refreshTasks();
+setInterval(refreshTasks, 30000);
+</script>
+{% endblock %}

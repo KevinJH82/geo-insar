@@ -1,0 +1,60 @@
+# ============================================================
+# geo-insar Phase 1 配置
+# ============================================================
+# 凭证 (credentials.yaml) 单独管理,见下面 'credentials' 段说明
+
+service:
+  # Flask 服务端口
+  port: 8084
+  # 监听地址(0.0.0.0 表示所有接口)
+  host: "0.0.0.0"
+  # HyP3 轮询周期(秒)
+  hyp3_poll_interval: 300
+
+paths:
+  # InSAR 标准输出根目录
+  output_dir: /opt/deepexplor-services/geo-insar/downloads
+  # SQLite 任务库
+  task_db: /opt/deepexplor-services/geo-insar/task_store.db
+  # 日志目录
+  logs_dir: /opt/deepexplor-services/geo-insar/logs
+
+credentials:
+  # 凭证文件查找顺序(commons/auth.py 的 fallback 链):
+  #   1. ENV GEO_INSAR_CONFIG
+  #   2. /opt/deepexplor-services/geo-insar/config/credentials.yaml
+  #   3. /opt/deepexplor-services/geo-downloader/config/credentials.yaml (同机部署的 fallback)
+  #
+  # 推荐复用 geo-downloader 的凭证(同机部署省事),只要 nasa_earthdata 段填齐即可。
+  # 如果想 geo-insar 独立配,创建 geo-insar/config/credentials.yaml 即可覆盖。
+
+hyp3:
+  # 默认后端(可在 UI 改)
+  default_backend: INSAR_ISCE_BURST
+  # 配额上限提示(超此值前端警告,不阻塞)
+  monthly_quota_warning: 800
+
+# ============================================================
+# 配对参数默认值 —— 当前预设:矿区沉降监测
+# ============================================================
+# 适用场景:在产矿、采空区沉降等"强信号 + 短周期"地质监测。
+# 前端请求未携带对应字段时,服务端使用以下默认值。
+#
+# 其他地质场景参考(需要时改下面 3 个值即可):
+#   滑坡/边坡稳定:  36 / 150 / 100~150
+#   油气/地热:      48~72 / 150 / 200~300  (建议 strategy=cascade)
+#   构造形变:       96 / 150 / 300+         (建议配合 PS-InSAR 流程)
+pairing:
+  # 配对策略: closest_in_time | fixed_master | cascade
+  strategy: closest_in_time
+  # 时间基线上限(天)—— 矿区 24~36 天,捕获月级沉降
+  max_temporal_baseline_days: 36
+  # 垂直基线上限(米)—— 收紧到 150 以减少 DEM 误差和几何去相关
+  max_perp_baseline_m: 150
+  # 单任务最多配对数 —— 矿区 100~150 可覆盖 3~6 个月监测
+  max_pairs: 120
+
+snap:
+  # Phase 2 才用到,Phase 1 无视
+  gpt_path: "/Applications/snap/bin/gpt"  # macOS 默认;Linux 常见 /opt/snap/bin/gpt
+  snaphu_path: "snaphu"                    # apt install snaphu 或 brew install snaphu

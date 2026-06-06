@@ -1,0 +1,173 @@
+<graph id="GeoInsar_TOPS_Interferogram_Pipeline">
+  <version>1.0</version>
+  <!--
+    geo-insar Phase 2 — SNAP gpt 干涉处理流水线
+    适用:Sentinel-1 IW SLC pair → unwrapped phase + coherence + LOS displacement
+    用法:gpt insar_pipeline.xml -Preference=<ref.zip> -Psecondary=<sec.zip> \
+              -Ppolarization=VV -Pworkdir=<dir> -Psnaphu=snaphu -Pres=30
+
+    说明:
+    - 默认处理 IW1 + burst 1-9(整景),小 AOI 用户可能只需要单 burst,
+      把 -PsubswathIW=IW2 或调整 -PfirstBurstIndex/-PlastBurstIndex
+    - 解缠用 snaphu,需要外部安装并在 PATH 中可见
+    - 输出 GeoTIFF 到 ${workdir}/{unwrapped_phase,coherence,los_displacement}.tif
+    - 简化版,生产环境可能需要做 ESD 精配准、轨道精度切换等
+  -->
+
+  <node id="Read-Ref">
+    <operator>Read</operator>
+    <parameters>
+      <file>${reference}</file>
+    </parameters>
+  </node>
+
+  <node id="Read-Sec">
+    <operator>Read</operator>
+    <parameters>
+      <file>${secondary}</file>
+    </parameters>
+  </node>
+
+  <node id="TOPSAR-Split-Ref">
+    <operator>TOPSAR-Split</operator>
+    <sources><sourceProduct refid="Read-Ref"/></sources>
+    <parameters>
+      <subswath>IW2</subswath>
+      <selectedPolarisations>${polarization}</selectedPolarisations>
+    </parameters>
+  </node>
+
+  <node id="TOPSAR-Split-Sec">
+    <operator>TOPSAR-Split</operator>
+    <sources><sourceProduct refid="Read-Sec"/></sources>
+    <parameters>
+      <subswath>IW2</subswath>
+      <selectedPolarisations>${polarization}</selectedPolarisations>
+    </parameters>
+  </node>
+
+  <node id="Apply-Orbit-Ref">
+    <operator>Apply-Orbit-File</operator>
+    <sources><sourceProduct refid="TOPSAR-Split-Ref"/></sources>
+    <parameters>
+      <orbitType>Sentinel Precise (Auto Download)</orbitType>
+      <continueOnFail>true</continueOnFail>
+    </parameters>
+  </node>
+
+  <node id="Apply-Orbit-Sec">
+    <operator>Apply-Orbit-File</operator>
+    <sources><sourceProduct refid="TOPSAR-Split-Sec"/></sources>
+    <parameters>
+      <orbitType>Sentinel Precise (Auto Download)</orbitType>
+      <continueOnFail>true</continueOnFail>
+    </parameters>
+  </node>
+
+  <node id="Back-Geocoding">
+    <operator>Back-Geocoding</operator>
+    <sources>
+      <sourceProduct refid="Apply-Orbit-Ref"/>
+      <sourceProduct.1 refid="Apply-Orbit-Sec"/>
+    </sources>
+    <parameters>
+      <demName>SRTM 1Sec HGT</demName>
+      <resamplingType>BILINEAR_INTERPOLATION</resamplingType>
+      <maskOutAreaWithoutElevation>true</maskOutAreaWithoutElevation>
+    </parameters>
+  </node>
+
+  <node id="Interferogram">
+    <operator>Interferogram</operator>
+    <sources><sourceProduct refid="Back-Geocoding"/></sources>
+    <parameters>
+      <subtractFlatEarthPhase>true</subtractFlatEarthPhase>
+      <subtractTopographicPhase>true</subtractTopographicPhase>
+      <demName>SRTM 1Sec HGT</demName>
+      <includeCoherence>true</includeCoherence>
+      <cohWinAz>10</cohWinAz>
+      <cohWinRg>10</cohWinRg>
+    </parameters>
+  </node>
+
+  <node id="TOPSAR-Deburst">
+    <operator>TOPSAR-Deburst</operator>
+    <sources><sourceProduct refid="Interferogram"/></sources>
+    <parameters>
+      <selectedPolarisations>${polarization}</selectedPolarisations>
+    </parameters>
+  </node>
+
+  <node id="GoldsteinPhaseFiltering">
+    <operator>GoldsteinPhaseFiltering</operator>
+    <sources><sourceProduct refid="TOPSAR-Deburst"/></sources>
+    <parameters>
+      <alpha>1.0</alpha>
+      <FFTSizeString>64</FFTSizeString>
+      <windowSizeString>3</windowSizeString>
+    </parameters>
+  </node>
+
+  <node id="SnaphuExport">
+    <operator>SnaphuExport</operator>
+    <sources><sourceProduct refid="GoldsteinPhaseFiltering"/></sources>
+    <parameters>
+      <targetFolder>${workdir}/snaphu</targetFolder>
+      <statCostMode>DEFO</statCostMode>
+      <initMethod>MCF</initMethod>
+      <numberOfTileRows>1</numberOfTileRows>
+      <numberOfTileCols>1</numberOfTileCols>
+      <numberOfProcessors>4</numberOfProcessors>
+    </parameters>
+  </node>
+
+  <!--
+    snaphu 解缠后,SnaphuImport 把 .unw 文件重新读回 SNAP product。
+    实际流程中 SnaphuExport 后 gpt 会暂停,需要在外部跑 snaphu,
+    然后再用 SnaphuImport 节点。本 graph 假设 SNAP-snaphu 集成已配
+    好(SNAP 7.0+ 支持自动调用 snaphu),否则需要拆成两个 graph 跑。
+  -->
+  <node id="SnaphuImport">
+    <operator>SnaphuImport</operator>
+    <sources>
+      <sourceProduct refid="GoldsteinPhaseFiltering"/>
+      <sourceProduct.1 refid="SnaphuExport"/>
+    </sources>
+    <parameters>
+      <doNotKeepWrapped>false</doNotKeepWrapped>
+    </parameters>
+  </node>
+
+  <node id="PhaseToDisplacement">
+    <operator>PhaseToDisplacement</operator>
+    <sources><sourceProduct refid="SnaphuImport"/></sources>
+  </node>
+
+  <node id="Terrain-Correction">
+    <operator>Terrain-Correction</operator>
+    <sources><sourceProduct refid="PhaseToDisplacement"/></sources>
+    <parameters>
+      <demName>SRTM 1Sec HGT</demName>
+      <pixelSpacingInMeter>${res}</pixelSpacingInMeter>
+      <mapProjection>WGS84(DD)</mapProjection>
+      <nodataValueAtSea>true</nodataValueAtSea>
+      <saveLatLon>false</saveLatLon>
+    </parameters>
+  </node>
+
+  <node id="Write-Unwrapped">
+    <operator>Write</operator>
+    <sources><sourceProduct refid="Terrain-Correction"/></sources>
+    <parameters>
+      <file>${workdir}/unwrapped_phase.tif</file>
+      <formatName>GeoTIFF</formatName>
+    </parameters>
+  </node>
+
+  <!--
+    coherence / wrapped_phase / los_displacement 单独写 GeoTIFF:
+    可用 BandSelect 节点提取再 Write,这里省略以保持模板紧凑;
+    实际生产 graph 应该展开成多个 Write 节点。
+    最简方案:用 BandMaths 或 Subset 提取 phase / coh / disp 后分别 Write。
+  -->
+</graph>

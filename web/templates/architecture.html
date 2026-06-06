@@ -1,0 +1,65 @@
+{% extends "_base.html" %}
+{% set active = 'architecture' %}
+{% block title %}产品契约{% endblock %}
+{% block page_title %}产品契约{% endblock %}
+{% block page_sub %}geo-insar 标准输出目录结构与 metadata schema。下游 geo-exploration / geo-reporter / geo-analyser 依此消费。{% endblock %}
+
+{% block content %}
+<div class="space-y-6">
+  <section class="sh-card p-6">
+    <h3 class="font-semibold text-zinc-900 flex items-center gap-2 mb-4">
+      <iconify-icon icon="lucide:folder-tree" class="text-purple-600"></iconify-icon>
+      InSAR 干涉对标准目录(每对一个目录)
+    </h3>
+<pre class="bg-zinc-900 text-zinc-100 text-xs p-4 rounded overflow-x-auto">downloads/&lt;aoi_name&gt;/sentinel1_insar/&lt;refdate&gt;_&lt;secdate&gt;_&lt;polarization&gt;/
+  ├── unwrapped_phase.tif    # 解缠相位(弧度)
+  ├── coherence.tif          # 相干性(0–1)
+  ├── los_displacement.tif   # LOS 形变(mm)
+  ├── wrapped_phase.tif      # 干涉图(可选)
+  ├── dem.tif                # DEM(可选,--include-dem)
+  ├── water_mask.tif         # 水体掩膜(可选,--include-water-mask)
+  ├── incidence_angle_map.tif# 入射角图(可选,--include-inc-map)
+  ├── metadata.json          # 遵循 commons/insar_schema.json
+  └── _raw/                  # HyP3 原始 ZIP 解压(供调试,不参与下游消费)</pre>
+    <p class="text-xs text-zinc-500 mt-3">每个 AOI 下还有一个 <code>stack_index.json</code> 索引所有干涉对的统计概要,供下游快速查询。</p>
+  </section>
+
+  <section class="sh-card p-6">
+    <h3 class="font-semibold text-zinc-900 flex items-center gap-2 mb-4">
+      <iconify-icon icon="lucide:file-json" class="text-purple-600"></iconify-icon>
+      metadata.json 字段
+    </h3>
+    <div id="schema-table" class="text-sm">加载中…</div>
+  </section>
+
+  <section class="sh-card p-6">
+    <h3 class="font-semibold text-zinc-900 flex items-center gap-2 mb-4">
+      <iconify-icon icon="lucide:share-2" class="text-purple-600"></iconify-icon>
+      跨子系统数据流
+    </h3>
+<pre class="text-xs bg-zinc-50 p-3 rounded border border-zinc-200">geo-insar/  →  标准输出目录(本契约)
+    │
+    ├──→ geo-exploration : 定时扫描 → SlowVars 第 8 类因素 → 矿产预测图叠加
+    │
+    ├──→ geo-reporter    : insar_reader 读统计 → categories 新章节 → 报告 InSAR 章节
+    │
+    └──→ geo-analyser    : insar_broker 扫描 → insar_analysis / timeseries → API/前端</pre>
+    <p class="text-xs text-zinc-500 mt-3">四个子系统(geo-insar + 三下游)同机部署,数据流走本机文件系统订阅,无消息队列。</p>
+  </section>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+fetch('/static/insar_schema.json').then(r => r.json()).then(s => {
+  const rows = Object.entries(s.properties || {}).map(([k, v]) => {
+    const type = Array.isArray(v.type) ? v.type.join(' / ') : v.type;
+    return `<tr class="border-b border-zinc-100"><td class="py-1 pr-3 font-mono text-xs">${k}</td><td class="py-1 pr-3 text-xs text-zinc-600">${type}</td><td class="py-1 text-xs text-zinc-500">${v.description||''}</td></tr>`;
+  }).join('');
+  document.getElementById('schema-table').innerHTML =
+    `<table class="w-full"><thead><tr class="text-zinc-500 text-xs"><th class="text-left py-1">字段</th><th class="text-left py-1">类型</th><th class="text-left py-1">说明</th></tr></thead><tbody>${rows}</tbody></table>`;
+}).catch(_ => {
+  document.getElementById('schema-table').innerHTML = '<span class="text-zinc-400">无法加载 schema(commons/insar_schema.json 可能未挂载到 static)</span>';
+});
+</script>
+{% endblock %}

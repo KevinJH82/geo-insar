@@ -1,0 +1,318 @@
+{% extends "_base.html" %}
+{% block title %}任务详情{% endblock %}
+{% block page_title %}<span id="task-title">任务详情</span>{% endblock %}
+{% block page_sub %}<span id="task-sub" class="text-zinc-500">加载中…</span>{% endblock %}
+
+{% block content %}
+<div class="space-y-6">
+
+  <!-- 基本信息 + 进度 -->
+  <section class="sh-card p-5">
+    <div class="flex items-start justify-between mb-4">
+      <div>
+        <div class="flex items-center gap-2">
+          <a href="/index.html" class="text-zinc-400 hover:text-zinc-700 text-sm">← 任务列表</a>
+        </div>
+      </div>
+      <div class="flex items-center gap-2">
+        <a id="btn-retry" class="hidden sh-btn-outline text-xs cursor-pointer text-amber-700 border-amber-300">
+          <iconify-icon icon="lucide:refresh-cw"></iconify-icon>
+          <span>重新提交</span>
+        </a>
+        <a id="btn-export" class="sh-btn-outline text-xs cursor-pointer">
+          <iconify-icon icon="lucide:file-down"></iconify-icon>
+          <span>导出 Word 报告</span>
+        </a>
+        <a id="btn-delete" class="sh-btn-outline text-xs cursor-pointer text-red-700 border-red-300 hover:bg-red-50">
+          <iconify-icon icon="lucide:trash-2"></iconify-icon>
+          <span>删除任务</span>
+        </a>
+        <div id="task-status"></div>
+      </div>
+    </div>
+    <div class="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
+      <div><div class="text-zinc-400 text-xs mb-1">AOI</div><div id="m-aoi">-</div></div>
+      <div><div class="text-zinc-400 text-xs mb-1">backend</div><div id="m-backend">-</div></div>
+      <div><div class="text-zinc-400 text-xs mb-1">时间范围</div><div id="m-range">-</div></div>
+      <div><div class="text-zinc-400 text-xs mb-1">配对策略</div><div id="m-pair">-</div></div>
+    </div>
+    <div class="mt-3 text-xs text-zinc-400 flex items-center gap-1.5">
+      <iconify-icon icon="lucide:file"></iconify-icon>
+      <span>KML:</span>
+      <code id="m-kml" class="text-zinc-600">-</code>
+      <span id="m-kml-status"></span>
+    </div>
+    <div class="mt-5">
+      <div class="flex items-center justify-between text-xs text-zinc-500 mb-1">
+        <span id="m-progress-label">进度</span>
+        <span id="m-progress-pct">0%</span>
+      </div>
+      <div class="w-full bg-zinc-100 rounded-full h-2">
+        <div id="m-progress-bar" class="bg-emerald-500 h-2 rounded-full transition-all" style="width:0%"></div>
+      </div>
+      <div id="m-progress-detail" class="text-xs text-zinc-400 mt-2"></div>
+    </div>
+  </section>
+
+  <!-- Stack 摘要 -->
+  <section class="sh-card p-5">
+    <div class="flex items-center justify-between mb-3">
+      <h2 class="font-semibold text-zinc-800 flex items-center gap-2">
+        <iconify-icon icon="lucide:layers"></iconify-icon>
+        时序栈 (stack_index.json)
+      </h2>
+      <button id="btn-postprocess" class="sh-btn-outline text-xs">
+        <iconify-icon icon="lucide:package"></iconify-icon>
+        <span>建栈/解压标准化</span>
+      </button>
+    </div>
+    <div id="stack-summary" class="text-sm text-zinc-500">尚未生成,点右上 "建栈" 按钮触发</div>
+  </section>
+
+  <!-- 快视图 -->
+  <section class="sh-card p-5">
+    <div class="flex items-center justify-between mb-3">
+      <h2 class="font-semibold text-zinc-800 flex items-center gap-2">
+        <iconify-icon icon="lucide:image"></iconify-icon>
+        快视图 (quicklooks)
+      </h2>
+      <button id="btn-quicklook" class="sh-btn-outline text-xs">
+        <iconify-icon icon="lucide:zap"></iconify-icon>
+        <span>跑 quicklook</span>
+      </button>
+    </div>
+    <div id="quicklook-grid" class="grid grid-cols-1 md:grid-cols-2 gap-4">
+      <div class="text-sm text-zinc-400 col-span-full">尚无快视图</div>
+    </div>
+  </section>
+
+  <!-- SBAS 反演结果 -->
+  <section class="sh-card p-5">
+    <div class="flex items-center justify-between mb-3">
+      <h2 class="font-semibold text-zinc-800 flex items-center gap-2">
+        <iconify-icon icon="lucide:trending-down"></iconify-icon>
+        SBAS 时序反演
+      </h2>
+      <button id="btn-sbas" class="sh-btn-outline text-xs">
+        <iconify-icon icon="lucide:play"></iconify-icon>
+        <span>跑 SBAS(选 pair 最多的 burst)</span>
+      </button>
+    </div>
+    <div id="sbas-list" class="space-y-6">
+      <div class="text-sm text-zinc-400">尚无 SBAS 结果</div>
+    </div>
+  </section>
+
+  <!-- Jobs 表(折叠) -->
+  <section class="sh-card p-5">
+    <details>
+      <summary class="cursor-pointer font-semibold text-zinc-800 flex items-center gap-2">
+        <iconify-icon icon="lucide:list"></iconify-icon>
+        Jobs 明细 (<span id="job-count">0</span>)
+      </summary>
+      <div class="mt-3 overflow-x-auto">
+        <table class="w-full text-xs">
+          <thead class="text-zinc-500 border-b">
+            <tr>
+              <th class="text-left py-1.5 px-2">ID</th>
+              <th class="text-left py-1.5 px-2">pair</th>
+              <th class="text-left py-1.5 px-2">baseline</th>
+              <th class="text-left py-1.5 px-2">status</th>
+              <th class="text-left py-1.5 px-2">hyp3_id</th>
+            </tr>
+          </thead>
+          <tbody id="jobs-tbody"></tbody>
+        </table>
+      </div>
+    </details>
+  </section>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+const TID = parseInt(new URLSearchParams(location.search).get('id') || '0', 10);
+if (!TID) {
+  document.querySelector('main').innerHTML = '<div class="sh-card p-5 text-zinc-500">缺少 ?id= 参数。<a href="/index.html" class="text-blue-600 underline">返回任务列表</a></div>';
+}
+
+const statusPill = (s) => {
+  const cls = {running:'pill-running', done:'pill-done', error:'pill-error', pending:'pill-pending', stopped:'pill-pending'}[s] || 'pill-pending';
+  return `<span class="status-pill ${cls}">${s||'-'}</span>`;
+};
+
+async function load() {
+  const r = await fetch(`/api/tasks/${TID}`);
+  if (!r.ok) {
+    document.getElementById('task-sub').textContent = `task #${TID} 不存在`;
+    return;
+  }
+  const t = await r.json();
+
+  // 标题 & meta
+  document.getElementById('task-title').textContent = `#${t.id} · ${t.label || t.aoi_name || ''}`;
+  document.getElementById('task-sub').textContent = `${t.aoi_name || ''} · ${t.sensor || ''} · 创建 ${t.created_at || ''}`;
+  document.getElementById('task-status').innerHTML = statusPill(t.status);
+
+  // error 状态才显示重试按钮
+  const btnRetry = document.getElementById('btn-retry');
+  if (t.status === 'error') btnRetry.classList.remove('hidden');
+  else                      btnRetry.classList.add('hidden');
+
+  document.getElementById('m-aoi').textContent = t.aoi_name || '-';
+  document.getElementById('m-backend').textContent = t.backend || '-';
+  document.getElementById('m-range').textContent = `${t.start_date || ''} ~ ${t.end_date || ''}`;
+  document.getElementById('m-pair').textContent =
+    `${t.pair_strategy || ''}, ≤${t.max_temporal_baseline_days}d / ${t.max_perp_baseline_m}m`;
+  document.getElementById('m-kml').textContent = t.kml_path || '-';
+
+  // 进度
+  const p = t.progress || {total:0,done:0,failed:0};
+  const pct = p.total ? (100 * p.done / p.total).toFixed(0) : 0;
+  document.getElementById('m-progress-pct').textContent = `${pct}%`;
+  document.getElementById('m-progress-bar').style.width = `${pct}%`;
+  document.getElementById('m-progress-label').textContent = `${p.done}/${p.total} 完成`;
+  const byStatusStr = Object.entries(p.by_status || {}).map(([k,v])=>`${k}:${v}`).join('  ');
+  document.getElementById('m-progress-detail').textContent = byStatusStr;
+
+  // Stack 摘要
+  const stack = t.artifacts?.stack_index;
+  const stackEl = document.getElementById('stack-summary');
+  if (stack && !stack._error) {
+    const dr = stack.date_range || ['?','?'];
+    const cohOverall = stack.coherence_mean_overall;
+    stackEl.innerHTML = `
+      <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
+        <div><div class="text-zinc-400 text-xs mb-1">pair 数</div><div class="font-medium">${stack.pair_count ?? '-'}</div></div>
+        <div><div class="text-zinc-400 text-xs mb-1">日期范围</div><div class="font-medium">${dr[0]} → ${dr[1]}</div></div>
+        <div><div class="text-zinc-400 text-xs mb-1">平均相干性</div><div class="font-medium">${cohOverall ? cohOverall.toFixed(3) : '-'}</div></div>
+        <div><div class="text-zinc-400 text-xs mb-1">极化</div><div class="font-medium">${(stack.polarizations||[]).join(', ') || '-'}</div></div>
+      </div>`;
+  } else if (stack?._error) {
+    stackEl.innerHTML = `<span class="text-red-500">读取失败: ${stack._error}</span>`;
+  }
+
+  // Quicklooks
+  const qls = t.artifacts?.quicklooks || [];
+  const qlGrid = document.getElementById('quicklook-grid');
+  if (qls.length) {
+    qlGrid.innerHTML = qls.map(q => `
+      <a href="${q.url}" target="_blank" class="block group">
+        <img src="${q.url}" alt="${q.name}" class="w-full rounded border border-zinc-200 group-hover:border-zinc-400 transition-colors" loading="lazy"/>
+        <div class="text-xs text-zinc-500 mt-1 truncate">${q.name}</div>
+      </a>`).join('');
+  }
+
+  // SBAS
+  const sbasList = t.artifacts?.sbas || [];
+  const sbasEl = document.getElementById('sbas-list');
+  if (sbasList.length) {
+    sbasEl.innerHTML = sbasList.map(s => {
+      const sm = s.summary || {};
+      const v = sm.velocity_mm_per_year || {};
+      return `
+      <div class="border border-zinc-200 rounded-md p-4">
+        <div class="flex items-center justify-between mb-3">
+          <h3 class="font-semibold text-zinc-800">burst ${s.burst}</h3>
+          <span class="text-xs text-zinc-500">${sm.n_pairs || '?'} pairs · ${sm.n_dates || '?'} acq · 有效像素 ${sm.valid_pixel_pct ? sm.valid_pixel_pct.toFixed(1)+'%' : '-'}</span>
+        </div>
+        <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
+          ${s.velocity_map_url ? `<a href="${s.velocity_map_url}" target="_blank"><img src="${s.velocity_map_url}" class="w-full rounded border"/></a>` : ''}
+          ${s.timeseries_points_url ? `<a href="${s.timeseries_points_url}" target="_blank"><img src="${s.timeseries_points_url}" class="w-full rounded border"/></a>` : ''}
+        </div>
+        ${v.min !== undefined ? `
+        <div class="grid grid-cols-2 md:grid-cols-4 gap-3 text-xs mt-4 text-zinc-600">
+          <div><span class="text-zinc-400">速率范围</span><div class="font-mono">${v.min?.toFixed(1)} ~ ${v.max?.toFixed(1)} mm/yr</div></div>
+          <div><span class="text-zinc-400">P5~P95</span><div class="font-mono">${v.p5?.toFixed(1)} ~ ${v.p95?.toFixed(1)}</div></div>
+          <div><span class="text-zinc-400">均值±std</span><div class="font-mono">${v.mean?.toFixed(2)} ± ${v.std?.toFixed(2)}</div></div>
+          <div><span class="text-zinc-400">coh-mask</span><div class="font-mono">≥ ${sm.coh_mask_threshold ?? '-'}</div></div>
+        </div>` : ''}
+      </div>`;
+    }).join('');
+  }
+
+  // Jobs 表
+  const jobs = t.jobs || [];
+  document.getElementById('job-count').textContent = jobs.length;
+  document.getElementById('jobs-tbody').innerHTML = jobs.map(j => `
+    <tr class="border-b border-zinc-100">
+      <td class="py-1 px-2 text-zinc-400">${j.id}</td>
+      <td class="py-1 px-2">${j.ref_date} → ${j.sec_date} ${j.polarization || ''}</td>
+      <td class="py-1 px-2">${j.temporal_baseline_days || '-'} d</td>
+      <td class="py-1 px-2">${statusPill(j.status)}</td>
+      <td class="py-1 px-2 text-zinc-400 font-mono text-[10px]">${(j.hyp3_job_id || '').slice(0,8)}…</td>
+    </tr>`).join('');
+}
+
+async function postAndReload(url, btn, runningLabel) {
+  const oldHTML = btn.innerHTML;
+  btn.disabled = true;
+  btn.innerHTML = `<iconify-icon icon="lucide:loader-2" class="animate-spin"></iconify-icon><span>${runningLabel}</span>`;
+  try {
+    const r = await fetch(url, {method:'POST', headers:{'Content-Type':'application/json'}, body:'{}'});
+    if (!r.ok) throw new Error(await r.text());
+    // 给脚本一些时间出第一批结果再刷新(SBAS 大约 30-60s, quicklook 几秒)
+    setTimeout(() => { btn.innerHTML = oldHTML; btn.disabled = false; load(); }, 8000);
+  } catch (e) {
+    alert('启动失败: ' + e.message);
+    btn.innerHTML = oldHTML;
+    btn.disabled = false;
+  }
+}
+
+document.getElementById('btn-postprocess').addEventListener('click', (e) => {
+  postAndReload(`/api/tasks/${TID}/postprocess`, e.currentTarget, '建栈中…');
+});
+document.getElementById('btn-quicklook').addEventListener('click', (e) => {
+  postAndReload(`/api/tasks/${TID}/quicklook`, e.currentTarget, '运行中…');
+});
+document.getElementById('btn-sbas').addEventListener('click', (e) => {
+  postAndReload(`/api/tasks/${TID}/sbas`, e.currentTarget, '运行中…');
+});
+document.getElementById('btn-export').addEventListener('click', () => {
+  window.location.href = `/api/tasks/${TID}/report.docx`;
+});
+document.getElementById('btn-delete').addEventListener('click', async () => {
+  if (!confirm(`确认删除 task #${TID}?\n本地数据库记录会清掉,下载到本地的产物文件保留。`)) return;
+  try {
+    let r = await fetch(`/api/tasks/${TID}`, {method:'DELETE'});
+    if (r.status === 409) {
+      const j = await r.json();
+      const ok = confirm(
+        `⚠ 该任务在 HyP3 端有 ${j.hyp3_jobs_in_flight} 个真 jobs(已扣配额,HyP3 不支持 cancel)。\n` +
+        `强制删除会导致这些 jobs 在 HyP3 端孤儿,无法追踪状态。\n\n确认强制删除?`
+      );
+      if (!ok) return;
+      r = await fetch(`/api/tasks/${TID}?force=true`, {method:'DELETE'});
+    }
+    if (!r.ok) throw new Error(await r.text());
+    const j = await r.json();
+    alert(`已删除 task #${TID}(${j.jobs_deleted} jobs)${j.hyp3_orphans_left ? `,HyP3 端留 ${j.hyp3_orphans_left} 孤儿` : ''}`);
+    location.href = '/index.html';
+  } catch (e) {
+    alert('删除失败: ' + e.message);
+  }
+});
+
+document.getElementById('btn-retry').addEventListener('click', async (e) => {
+  if (!confirm('将删除该任务下未成功提交的孤儿 jobs,并用原参数重新提交。继续?')) return;
+  const btn = e.currentTarget;
+  const old = btn.innerHTML;
+  btn.classList.add('opacity-50','pointer-events-none');
+  btn.innerHTML = `<iconify-icon icon="lucide:loader-2" class="animate-spin"></iconify-icon><span>重提中…</span>`;
+  try {
+    const r = await fetch(`/api/tasks/${TID}/retry`, {method:'POST'});
+    const j = await r.json();
+    if (!r.ok) throw new Error(j.error || r.statusText);
+    alert(`已重新提交。删除孤儿 jobs: ${j.deleted_orphan_jobs}`);
+    setTimeout(() => location.reload(), 1000);
+  } catch (err) {
+    alert('重提失败: ' + err.message);
+    btn.innerHTML = old;
+    btn.classList.remove('opacity-50','pointer-events-none');
+  }
+});
+
+if (TID) load();
+</script>
+{% endblock %}

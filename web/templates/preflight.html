@@ -1,0 +1,66 @@
+{% extends "_base.html" %}
+{% set active = 'preflight' %}
+{% block title %}前置检查{% endblock %}
+{% block page_title %}前置检查{% endblock %}
+{% block page_sub %}运维诊断面板:HyP3 端点、端口、凭证、依赖、网络出口。{% endblock %}
+
+{% block content %}
+<section class="sh-card p-6">
+  <div class="flex items-center justify-between mb-4">
+    <h3 class="font-semibold text-zinc-900 flex items-center gap-2">
+      <iconify-icon icon="lucide:stethoscope" class="text-purple-600"></iconify-icon>
+      环境检查
+    </h3>
+    <button id="btn-run" class="sh-btn-primary">
+      <iconify-icon icon="lucide:refresh-cw"></iconify-icon>运行检查
+    </button>
+  </div>
+  <div id="preflight-result" class="text-sm">点击右上方按钮开始检查。检查不阻塞服务运行,只是给运维提供诊断信息。</div>
+</section>
+
+<section class="sh-card p-6 mt-6">
+  <h3 class="font-semibold text-zinc-900 flex items-center gap-2 mb-3">
+    <iconify-icon icon="lucide:book-open" class="text-purple-600"></iconify-icon>
+    项目修复建议
+  </h3>
+  <ul class="text-sm text-zinc-700 list-disc list-inside space-y-2">
+    <li><b>HyP3 端点不通</b>:检查 OpenVPN 出口(参考 <code>commons/network.py</code> 的 <code>resolve_proxies</code>)</li>
+    <li><b>HyP3 授权缺失</b>:登 <a href="https://hyp3-api.asf.alaska.edu/ui/" class="text-purple-600 underline" target="_blank">https://hyp3-api.asf.alaska.edu/ui/</a> 用 Earthdata 账号授权 HyP3 应用</li>
+    <li><b>Earthdata 凭证缺失</b>:复制 <code>/opt/deepexplor-services/geo-downloader/credentials.yaml.example</code> 到 <code>config/credentials.yaml</code> 并填写 <code>nasa_earthdata</code> 段</li>
+    <li><b>Python 依赖缺失</b>:在 geo-insar 目录运行 <code>pip install -r requirements.txt</code></li>
+    <li><b>端口被占</b>:修改 <code>config.yaml</code> 中的 <code>port</code>(默认 8084),或释放冲突进程</li>
+  </ul>
+</section>
+{% endblock %}
+
+{% block scripts %}
+<script>
+document.getElementById('btn-run').onclick = async () => {
+  const box = document.getElementById('preflight-result');
+  box.innerHTML = '运行中(最长 60 秒)…';
+  try {
+    const r = await fetch('/api/preflight');
+    const j = await r.json();
+    const items = j.report?.checks || [];
+    let rows = items.map(c => {
+      const ok = c.status === 'pass';
+      const pill = ok ? 'pill-done' : (c.status === 'warn' ? 'pill-running' : 'pill-error');
+      const icon = ok ? '✅' : (c.status === 'warn' ? '⚠️' : '❌');
+      return `<tr class="border-b border-zinc-100">
+        <td class="py-2 w-8">${icon}</td>
+        <td class="py-2 font-medium">${c.name}</td>
+        <td class="py-2 text-xs text-zinc-500">${c.detail||''}</td>
+        <td class="py-2"><span class="status-pill ${pill}">${c.status}</span></td>
+      </tr>`;
+    }).join('');
+    box.innerHTML = `
+      <div class="mb-3 text-xs text-zinc-500">退出码: <b>${j.exit_code}</b> · 检查 ${items.length} 项</div>
+      <table class="w-full">${rows||'<tr><td class="text-zinc-400 py-3">脚本未返回检查项</td></tr>'}</table>
+      ${j.stderr ? `<details class="mt-3 text-xs"><summary class="text-zinc-500 cursor-pointer">stderr</summary><pre class="bg-zinc-50 p-2 mt-1 rounded">${j.stderr}</pre></details>` : ''}
+    `;
+  } catch (e) {
+    box.innerHTML = `<span class="text-red-600">检查失败: ${e}</span>`;
+  }
+};
+</script>
+{% endblock %}
