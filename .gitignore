@@ -42,6 +42,7 @@ data_dir/
 *.db
 *.db-shm
 *.db-wal
+!task_store.db
 
 # ============ 大文件类型（卫星/模型/科学数据）============
 *.zip
