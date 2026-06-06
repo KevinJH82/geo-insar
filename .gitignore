@@ -40,6 +40,8 @@ data_dir/
 data_dir/
 *.sqlite
 *.db
+*.db-shm
+*.db-wal
 
 # ============ 大文件类型（卫星/模型/科学数据）============
 *.zip
