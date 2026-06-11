@@ -803,11 +803,15 @@ def _maybe_finalize_task(task_id: int):
         print(f"[finalize] task #{task_id} postprocess rc={rc}", flush=True)
         if not AUTO_SBAS:
             return
-        # 2) SBAS 时序反演(pair 最多的 burst → velocity_mm_per_year.tif)
-        rc = _run_step(["python3", str(ROOT / "scripts" / "sbas_invert.py"), str(task_id)],
+        # 2) SBAS 双轨时序反演(asc/desc 各 dominant burst → velocity_mm_per_year.tif)
+        rc = _run_step(["python3", str(ROOT / "scripts" / "sbas_dualtrack.py"), str(task_id)],
                        f"sbas_task{task_id}.log")
-        print(f"[finalize] task #{task_id} sbas rc={rc}", flush=True)
-        # 3) 形变证据合成 + AOI 级平台契约(供 geo-model3d),全量扫描、幂等跳过已有
+        print(f"[finalize] task #{task_id} sbas(dualtrack) rc={rc}", flush=True)
+        # 3) 升降双轨 2D 分解(垂直/东西),仅两轨齐全才出产物
+        rc = _run_step(["python3", str(ROOT / "postprocess" / "decompose_2d.py"),
+                        "--skip-existing"], "decompose_2d.log")
+        print(f"[finalize] task #{task_id} decompose_2d rc={rc}", flush=True)
+        # 4) 形变证据合成 + AOI 级平台契约(优先垂直分量),全量扫描、幂等跳过已有
         rc = _run_step(["python3", str(ROOT / "postprocess" / "deformation_evidence.py"),
                         "--skip-existing"], "deformation_evidence.log")
         print(f"[finalize] task #{task_id} deformation_evidence rc={rc}", flush=True)

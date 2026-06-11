@@ -71,7 +71,15 @@ def build_deformation_evidence(aoi_dir: Path) -> Optional[Dict]:
                                reproject, transform_bounds)
 
     aoi_dir = Path(aoi_dir)
-    vel_tifs = _find_velocity_rasters(aoi_dir)
+    # 优先用升降双轨 2D 分解的垂直分量(|V_up|,物理意义比 |LOS| 准);
+    # 没有 2D 分解则回退到 LOS 速率镶嵌(|velocity|)。
+    vert_tif = aoi_dir / "vertical_velocity.tif"
+    if vert_tif.exists():
+        vel_tifs = [vert_tif]
+        evidence_source = "vertical_velocity"
+    else:
+        vel_tifs = _find_velocity_rasters(aoi_dir)
+        evidence_source = "los_velocity"
     if not vel_tifs:
         return None
 
@@ -157,15 +165,19 @@ def build_deformation_evidence(aoi_dir: Path) -> Optional[Dict]:
         "deformation_rate_abs_p95_mm_yr": float(np.percentile(finite, 95)),
         "coverage_ratio": float(finite.size / mosaic.size),
         "n_bursts": n_used,
+        "evidence_source": evidence_source,
     }
+    products = {"deformation_evidence": DEFORMATION_EVIDENCE_TIF}
+    if evidence_source == "vertical_velocity":
+        products["vertical_velocity"] = "vertical_velocity.tif"
+        if (aoi_dir / "ew_velocity.tif").exists():
+            products["ew_velocity"] = "ew_velocity.tif"
     meta = {
         "source": "geo-insar",
         "aoi_name": aoi_meta.get("aoi_name") or aoi_dir.name,
         "aoi_bbox": aoi_bbox,
         "crs": "EPSG:4326",
-        "products": {
-            "deformation_evidence": DEFORMATION_EVIDENCE_TIF,
-        },
+        "products": products,
         "stats": stats,
         "created_at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
     }
@@ -173,7 +185,7 @@ def build_deformation_evidence(aoi_dir: Path) -> Optional[Dict]:
     with open(out_meta, "w", encoding="utf-8") as f:
         json.dump(meta, f, ensure_ascii=False, indent=2)
 
-    print(f"    [形变证据] {n_used} burst → {out_tif.name} "
+    print(f"    [形变证据] 源={evidence_source} ({n_used} 栅格) → {out_tif.name} "
           f"(|v| 均值 {stats['deformation_rate_abs_mean_mm_yr']:.2f} mm/yr, "
           f"覆盖 {stats['coverage_ratio']*100:.0f}%) + {out_meta.name}")
     return meta
