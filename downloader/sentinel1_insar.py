@@ -215,44 +215,63 @@ class Sentinel1InsarDownloader(BaseDownloader):
         for s in scenes:
             groups.setdefault(_group_key(s), []).append(s)
 
-        pairs: List[Tuple[Any, Any]] = []
-
+        # 按组分别生成对（asc/desc、各 burst 互不混；只有同组影像才能干涉）
+        group_pairs: Dict[Tuple, List[Tuple[Any, Any]]] = {}
         for key, group in groups.items():
             group_sorted = sorted(group, key=lambda x: self._scene_datetime(x))
             if len(group_sorted) < 2:
                 continue
+            gp: List[Tuple[Any, Any]] = []
 
             if strategy == PAIR_CLOSEST:
                 for i in range(len(group_sorted) - 1):
                     ref, sec = group_sorted[i], group_sorted[i + 1]
-                    if self._baseline_days(ref, sec) > max_temporal_baseline_days:
-                        continue
-                    pairs.append((ref, sec))
+                    if self._baseline_days(ref, sec) <= max_temporal_baseline_days:
+                        gp.append((ref, sec))
 
             elif strategy == PAIR_FIXED_MASTER:
                 master = group_sorted[0]
                 for sec in group_sorted[1:]:
-                    if self._baseline_days(master, sec) > max_temporal_baseline_days:
-                        continue
-                    pairs.append((master, sec))
+                    if self._baseline_days(master, sec) <= max_temporal_baseline_days:
+                        gp.append((master, sec))
 
             elif strategy == PAIR_CASCADE:
                 for i in range(len(group_sorted) - 1):
                     for j in range(i + 1, len(group_sorted)):
                         if self._baseline_days(group_sorted[i], group_sorted[j]) > max_temporal_baseline_days:
                             break
-                        pairs.append((group_sorted[i], group_sorted[j]))
+                        gp.append((group_sorted[i], group_sorted[j]))
 
             else:
                 raise ValueError(f"未知配对策略: {strategy}")
 
-        # 截断
-        if len(pairs) > max_pairs:
-            print(f"    [配对] 共可配 {len(pairs)} 对,截至前 {max_pairs} 对(按时间排序)")
-            pairs.sort(key=lambda p: self._scene_datetime(p[0]))
-            pairs = pairs[:max_pairs]
+            if gp:
+                gp.sort(key=lambda p: self._scene_datetime(p[0]))
+                group_pairs[key] = gp
 
-        print(f"    [配对] 生成 {len(pairs)} 个 reference-secondary 对(策略: {strategy})")
+        # 公平截断：按组轮转取对，避免某条轨道/burst 被"全局排序砍前 N"而整组饿死。
+        # 升降双轨 / 多 burst 时关键：保证每组都拿到配额，总数仍受 max_pairs 约束。
+        keys = list(group_pairs.keys())
+        total = sum(len(v) for v in group_pairs.values())
+        if total <= max_pairs:
+            pairs = [p for k in keys for p in group_pairs[k]]
+        else:
+            pairs = []
+            cursor = {k: 0 for k in keys}
+            while len(pairs) < max_pairs and any(cursor[k] < len(group_pairs[k]) for k in keys):
+                for k in keys:
+                    if cursor[k] < len(group_pairs[k]):
+                        pairs.append(group_pairs[k][cursor[k]])
+                        cursor[k] += 1
+                        if len(pairs) >= max_pairs:
+                            break
+            print(f"    [配对] 共可配 {total} 对（{len(keys)} 组），按组公平截至 {max_pairs} 对")
+
+        # 各组（轨道/burst）各贡献多少，便于核对升降双轨覆盖
+        from collections import Counter
+        per_group = Counter(_group_key(ref) for ref, _sec in pairs)
+        groups_desc = "; ".join(f"{k}:{n}" for k, n in per_group.items())
+        print(f"    [配对] 生成 {len(pairs)} 对（策略 {strategy}；分组 {groups_desc}）")
         return pairs
 
     def _baseline_days(self, ref, sec) -> int:

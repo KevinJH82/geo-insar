@@ -49,13 +49,15 @@ hyp3:
 #   构造形变:       96 / 150 / 300+         (建议配合 PS-InSAR 流程)
 pairing:
   # 配对策略: closest_in_time | fixed_master | cascade
+  # ≥1 年时序 / SBAS / 升降双轨分解 建议用 cascade(多连接网络更稳),可在提交任务时按需选择
   strategy: closest_in_time
-  # 时间基线上限(天)—— 矿区 24~36 天,捕获月级沉降
+  # 时间基线上限(天)—— 矿区 24~36 天,捕获月级沉降;长时序双轨可放到 36~48
   max_temporal_baseline_days: 36
   # 垂直基线上限(米)—— 收紧到 150 以减少 DEM 误差和几何去相关
   max_perp_baseline_m: 150
-  # 单任务最多配对数 —— 矿区 100~150 可覆盖 3~6 个月监测
-  max_pairs: 120
+  # 单任务最多配对数(总上限)—— 现按"组(轨道/burst)公平分配",不会饿死某条轨道。
+  # 升降双轨 + ≥1 年 cascade 时,每轨各 20~30 景约需 100~150 对/轨,故上限给到 240。
+  max_pairs: 240
 
 snap:
   # Phase 2 才用到,Phase 1 无视
