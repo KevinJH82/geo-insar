@@ -29,6 +29,7 @@ sys.path.insert(0, str(REPO_ROOT))
 import task_store
 from commons.aoi import parse_aoi, bbox_area_km2
 from commons.auth import load_credentials, get_earthdata_creds, CredentialsError
+from commons.download import download_with_resume
 from commons.insar_utils import find_pairs, read_pair_metadata, stack_summary
 from postprocess.stack import list_stacks
 
@@ -43,9 +44,13 @@ UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
 import yaml as _yaml
 try:
     with open(ROOT / "config.yaml", "r", encoding="utf-8") as _f:
-        _PAIRING_CFG = (_yaml.safe_load(_f) or {}).get("pairing", {}) or {}
+        _CFG = _yaml.safe_load(_f) or {}
+    _PAIRING_CFG = _CFG.get("pairing", {}) or {}
 except FileNotFoundError:
-    _PAIRING_CFG = {}
+    _CFG, _PAIRING_CFG = {}, {}
+
+# 下载完成后是否自动接力 SBAS + 形变证据(供 geo-model3d 消费)
+AUTO_SBAS = bool((_CFG.get("service", {}) or {}).get("auto_sbas", True))
 
 DEFAULT_PAIR_STRATEGY  = _PAIRING_CFG.get("strategy", "closest_in_time")
 DEFAULT_TEMP_BASELINE  = int(_PAIRING_CFG.get("max_temporal_baseline_days", 24))
@@ -675,7 +680,10 @@ def _poll_once():
         return
 
     import hyp3_sdk
+    import requests
     hyp3 = hyp3_sdk.HyP3(username=ed["username"], password=ed.get("password") or ed["token"])
+    # HyP3 产物是预签名云 URL,无需 EDL 认证;复用一个 session 走带 stall 检测的下载器
+    dl_session = requests.Session()
 
     # 缓存 task → 输出目录,避免反复查表
     out_dir_cache: Dict[int, Path] = {}
@@ -715,12 +723,21 @@ def _poll_once():
             job["status"] = new_status
             touched_tasks.add(job["task_id"])
 
-        # 2) READY → 下载
+        # 2) READY → 下载（逐文件走 download_with_resume:stall 检测+超时+重试+.part 原子改名，
+        #    避免 hyp3_sdk 裸下载在半死连接上永久挂起、阻塞整条单线程轮询）
         if job["status"] == task_store.JOB_READY:
             out_dir = _task_out(job["task_id"])
+            out_dir.mkdir(parents=True, exist_ok=True)
             task_store.update_job(job["id"], status=task_store.JOB_DOWNLOADING)
             try:
-                paths = hjob.download_files(location=out_dir, create=True)
+                paths = []
+                for f in (getattr(hjob, "files", None) or []):
+                    url, fname = f.get("url"), f.get("filename")
+                    if not url or not fname:
+                        continue
+                    dest = out_dir / fname
+                    download_with_resume(dl_session, url, dest, desc=fname)
+                    paths.append(dest)
                 task_store.update_job(
                     job["id"],
                     status=task_store.JOB_DOWNLOADED,
@@ -765,19 +782,38 @@ def _maybe_finalize_task(task_id: int):
             status=task_store.TASK_DONE,
             error_msg=f"{prog['failed']}/{prog['total']} jobs failed",
         )
-    # 下载完成后自动后处理:解压标准化 + 建栈索引(交付页才会显示)
-    log_path = ROOT / "logs" / f"postprocess_task{task_id}.log"
-    log_path.parent.mkdir(parents=True, exist_ok=True)
+    # 下载完成后自动后处理链:解包建栈 →(可选)SBAS → 形变证据+契约。
+    # 各步独立落日志、best-effort:失败只记 rc 不阻断后续(SBAS 失败仍保留堆栈交付)。
+    logs_dir = ROOT / "logs"
+    logs_dir.mkdir(parents=True, exist_ok=True)
+
+    def _run_step(cmd, log_name):
+        try:
+            with open(logs_dir / log_name, "w") as lf:
+                return subprocess.run(cmd, stdout=lf, stderr=subprocess.STDOUT,
+                                      cwd=str(ROOT)).returncode
+        except Exception as e:
+            print(f"[finalize] task #{task_id} 步骤 {log_name} 异常: {e}", flush=True)
+            return -1
 
     def _runner():
-        with open(log_path, "w") as lf:
-            subprocess.run(
-                ["python3", str(ROOT / "scripts" / "postprocess_task.py"),
-                 str(task_id), "--skip-existing"],
-                stdout=lf, stderr=subprocess.STDOUT, cwd=str(ROOT),
-            )
+        # 1) 解包标准化 + 建栈索引(交付页 / reporter / analyser 依赖)
+        rc = _run_step(["python3", str(ROOT / "scripts" / "postprocess_task.py"),
+                        str(task_id), "--skip-existing"], f"postprocess_task{task_id}.log")
+        print(f"[finalize] task #{task_id} postprocess rc={rc}", flush=True)
+        if not AUTO_SBAS:
+            return
+        # 2) SBAS 时序反演(pair 最多的 burst → velocity_mm_per_year.tif)
+        rc = _run_step(["python3", str(ROOT / "scripts" / "sbas_invert.py"), str(task_id)],
+                       f"sbas_task{task_id}.log")
+        print(f"[finalize] task #{task_id} sbas rc={rc}", flush=True)
+        # 3) 形变证据合成 + AOI 级平台契约(供 geo-model3d),全量扫描、幂等跳过已有
+        rc = _run_step(["python3", str(ROOT / "postprocess" / "deformation_evidence.py"),
+                        "--skip-existing"], "deformation_evidence.log")
+        print(f"[finalize] task #{task_id} deformation_evidence rc={rc}", flush=True)
+
     threading.Thread(target=_runner, daemon=True).start()
-    print(f"[finalize] task #{task_id} done, 后台触发 postprocess → {log_path.name}", flush=True)
+    print(f"[finalize] task #{task_id} done, 后台触发后处理链(auto_sbas={AUTO_SBAS})", flush=True)
 
 
 # ── 启动 ────────────────────────────────────────────────────────

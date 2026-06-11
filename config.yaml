@@ -10,6 +10,9 @@ service:
   host: "0.0.0.0"
   # HyP3 轮询周期(秒)
   hyp3_poll_interval: 300
+  # 任务下载完成后,自动接力跑 SBAS 时序反演 + 形变证据合成(供 geo-model3d 消费)。
+  # SBAS 为重计算(全图 pinv,单 burst 分钟级);设 false 则只解包建栈,不自动跑 SBAS/形变证据。
+  auto_sbas: true
 
 paths:
   # InSAR 标准输出根目录

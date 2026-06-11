@@ -179,7 +179,8 @@ def build_deformation_evidence(aoi_dir: Path) -> Optional[Dict]:
     return meta
 
 
-def build_all(output_root: Path = _REPO_ROOT / "geo-insar" / "downloads") -> List[Dict]:
+def build_all(output_root: Path = _REPO_ROOT / "geo-insar" / "downloads",
+              skip_existing: bool = False) -> List[Dict]:
     """遍历 downloads 下所有 AOI，合成形变证据。返回成功写出的 metadata 列表。"""
     output_root = Path(output_root)
     out: List[Dict] = []
@@ -188,6 +189,10 @@ def build_all(output_root: Path = _REPO_ROOT / "geo-insar" / "downloads") -> Lis
         return out
     for aoi_dir in sorted(output_root.iterdir()):
         if not aoi_dir.is_dir() or aoi_dir.name.startswith("_"):
+            continue
+        if skip_existing and (aoi_dir / DEFORMATION_EVIDENCE_TIF).exists() \
+                and (aoi_dir / INSAR_METADATA_JSON).exists():
+            print(f"  [{aoi_dir.name}] 已有形变证据，跳过")
             continue
         try:
             meta = build_deformation_evidence(aoi_dir)
@@ -208,16 +213,22 @@ if __name__ == "__main__":
     ap.add_argument("--aoi", help="只处理指定 AOI 目录（绝对路径或 downloads 下的名字）")
     ap.add_argument("--root", default=str(_REPO_ROOT / "geo-insar" / "downloads"),
                     help="downloads 输出根目录")
+    ap.add_argument("--skip-existing", action="store_true",
+                    help="已有 deformation_evidence.tif + insar_metadata.json 的 AOI 跳过")
     args = ap.parse_args()
 
     if args.aoi:
         aoi_path = Path(args.aoi)
         if not aoi_path.is_absolute():
             aoi_path = Path(args.root) / args.aoi
+        if args.skip_existing and (aoi_path / DEFORMATION_EVIDENCE_TIF).exists() \
+                and (aoi_path / INSAR_METADATA_JSON).exists():
+            print(f"[{aoi_path.name}] 已有形变证据，跳过")
+            sys.exit(0)
         meta = build_deformation_evidence(aoi_path)
         if meta is None:
             print(f"[{aoi_path.name}] 无 SBAS 速率产物，未生成")
             sys.exit(1)
     else:
-        results = build_all(Path(args.root))
+        results = build_all(Path(args.root), skip_existing=args.skip_existing)
         print(f"\n=== 完成：{len(results)} 个 AOI 生成形变证据 ===")
