@@ -23,6 +23,29 @@ if str(_ROOT) not in sys.path:
 from commons.insar_utils import compute_pair_stats, validate_metadata
 
 
+def _orbit_from_burst(burst_id: Optional[str]) -> str:
+    """
+    从 HyP3 burst_id 推断 Sentinel-1 轨道方向。
+
+    规则:轨道号奇数=ASCENDING(升轨),偶数=DESCENDING(降轨)。
+    burst_id 格式如 067367_IW2、286456_IW3;前3-6位为相对轨道号。
+
+    Args:
+        burst_id: HyP3 frame_id/burst_id (如 "067367_IW2")
+
+    Returns:
+        "ASCENDING" or "DESCENDING"
+    """
+    if not burst_id:
+        return "ASCENDING"  # 无法判断时保守默认
+    # 提取轨道号(前3位是标准相对轨道号)
+    try:
+        track = int(str(burst_id)[:3])
+    except (ValueError, TypeError):
+        return "ASCENDING"
+    return "ASCENDING" if track % 2 == 1 else "DESCENDING"
+
+
 # HyP3 输出文件名模式(每种后端不一样,这里覆盖 GAMMA + ISCE_BURST)
 _PRODUCT_PATTERNS = {
     "unwrapped_phase": [
@@ -146,6 +169,11 @@ def standardize_hyp3_output(
     except ValueError:
         temporal_baseline_days = None
 
+    # 轨道方向:优先 extra_meta 显式指定,否则从 burst_id 推断(轨道号奇偶)
+    orbit_dir = extra_meta.get("orbit_direction")
+    if orbit_dir not in ("ASCENDING", "DESCENDING"):
+        orbit_dir = _orbit_from_burst(burst_id or extra_meta.get("frame_id"))
+
     meta = {
         "pair_id": pair_id,
         "master_date": datetime.strptime(ref_date, "%Y%m%d").strftime("%Y-%m-%d"),
@@ -153,7 +181,7 @@ def standardize_hyp3_output(
         "temporal_baseline_days": temporal_baseline_days,
         "perp_baseline_m": extra_meta.get("perp_baseline_m"),
         "polarization": polarization,
-        "orbit_direction": extra_meta.get("orbit_direction", "ASCENDING"),
+        "orbit_direction": orbit_dir,
         "frame": extra_meta.get("frame"),
         "frame_id": burst_id or extra_meta.get("frame_id"),
         "incidence_angle_mean": extra_meta.get("incidence_angle_mean", 38.0),
